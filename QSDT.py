@@ -34,12 +34,12 @@ class Inner(nn.Module):
         super(Inner, self).__init__()
         self.args = args
         self.fc = nn.Linear(self.args.INPUTSZ, 1)
-        self.Beta = torch.randn(1)
+        #self.Beta = torch.randn(1)
         self.penalty = 0
         self.prob = 0
         self.penalty_log_computed = 0
         #tracks beta on autograd
-        self.BetaParam = nn.Parameter(self.Beta, requires_grad=True)
+        #self.BetaParam = nn.Parameter(self.Beta, requires_grad=True)
         next_level_args = ARGS(args.LAMBDA, args.MAXDEPTH, args.INPUTSZ, args.OUTPUTSZ, args.LEVEL+1)
         if args.LEVEL != args.MAXDEPTH:
             self.L = Inner(next_level_args)
@@ -58,7 +58,7 @@ class Inner(nn.Module):
         return [super().parameters()] + self.R.getParameters() + self.L.getParameters()
 
     def _pforward(self, x, P):
-        out = sigmoid(self.Beta*self.fc(x))
+        out = sigmoid(self.fc(x))
         return out, out*P
 
     def _penalty(self):
