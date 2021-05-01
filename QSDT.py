@@ -62,7 +62,7 @@ class Inner(nn.Module):
         return out, out*P
 
     def _penalty(self):
-        self.penalty_log_computed = 0.5*(log(self.penalty) + log(1-self.self.penalty))
+        self.penalty_log_computed = 0.5*(log(self.penalty) + log(1-self.penalty))
 
     def forward(self, x, P = 1, train=False):
         self.prob = P
