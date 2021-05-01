@@ -162,8 +162,8 @@ def RLSOLVER(model: nn.Module, opt, env: Env, LossFunc,GAMMA, epsilon = 1024, rp
                 state = torch.Tensor(env.reset())
                 new_env = False
             if epsilon <= 0:
-                pass
-                #env.render()
+                #pass
+                env.render()
             ACTION, epsilon = next(act(state, epsilon))       #working with a generator function in python requires next() as it is a list generator
           
             STATE, REWARD, DONE, info = env.step(ACTION)

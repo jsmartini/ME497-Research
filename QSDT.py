@@ -4,7 +4,10 @@ from torch.utils.data import Dataset, DataLoader
 from collections import namedtuple
 import torch
 from functools import lru_cache
-
+from itertools import chain
+from torch.optim import Optimizer
+from dataclasses import dataclass
+from numpy import log
 #jonathan martini
 #not optimized for batch evaluation operations
 # 1 -> 1
@@ -23,16 +26,6 @@ ARGS = namedtuple(
 sigmoid = nn.Sigmoid
 softmax = nn.Softmax(0)
 
-
-def recursive_extend(target:list, base_list = []):
-    if type(target[0]) != list:
-        base_list.extend(target)
-        #print(base_list)
-        return base_list
-    elif type(target[0]) == list:
-        return list(map(lambda l: recursive_extend(l, base_list), target))
-
-
 class Inner(nn.Module):
     
     inner_collection = []
@@ -42,9 +35,12 @@ class Inner(nn.Module):
         self.args = args
         self.fc = nn.Linear(self.args.INPUTSZ, 1)
         self.Beta = torch.randn(1)
+        self.penalty = 0
+        self.prob = 0
+        self.penalty_log_computed = 0
         #tracks beta on autograd
         self.BetaParam = nn.Parameter(self.Beta, requires_grad=True)
-        next_level_args = ARGS(args.PENALTY, args.MAXDEPTH, args.INPUTSZ, args.OUTPUTSZ, args.LEVEL+1)
+        next_level_args = ARGS(args.LAMBDA, args.MAXDEPTH, args.INPUTSZ, args.OUTPUTSZ, args.LEVEL+1)
         if args.LEVEL != args.MAXDEPTH:
             self.L = Inner(next_level_args)
             self.R = Inner(next_level_args)
@@ -52,17 +48,21 @@ class Inner(nn.Module):
             self.L = Leaf(next_level_args)
             self.R = Leaf(next_level_args)
 
-        self.inner_collection[args.LEVEL].append(self)             #make object reference visible globally in the tree
-
+    def link(self):
+       #turns tree ref into heap
+       self.inner_collection.append(self)
+       self.R.link()
+       self.L.link()
+       
     def getParameters(self):
         return [super().parameters()] + self.R.getParameters() + self.L.getParameters()
 
     def _pforward(self, x, P):
         out = sigmoid(self.Beta*self.fc(x))
-        return out, out*p
+        return out, out*P
 
     def _penalty(self):
-        self.penalty_log_computed = 0.5*(torch.log(self.penalty) + torch.log(1-self.self.penalty))
+        self.penalty_log_computed = 0.5*(log(self.penalty) + log(1-self.self.penalty))
 
     def forward(self, x, P = 1, train=False):
         self.prob = P
@@ -70,21 +70,22 @@ class Inner(nn.Module):
         if train:
             self.penalty = p    #no batch size so it is just P (sums cancel)
             self._penalty()
-            if p > 0:
-                self.R(x, p = (1-p*P), train = train)
-                return self.L(x, p = p*P, train = train)
-            elif p < 0:
-                self.L(x, p = (1-p*P), train = train)
-                return self.R(x, p = p*P, train = train)
+            if p >= 0.5:
+                self.R(x, p = (1-p*P), train = True)
+                return self.L(x, p = p*P, train = True)
+            elif p < 0.5:
+                self.L(x, p = (1-p*P))
+                return self.R(x, p = p*P)
         else:
             #only returns the dist with highest path prob
-            if p > 0:           
+            if p >= 0.5:           
                 return self.L(x, p = (1-P*p), train = train)[0]
-            elif p < 0:
+            elif p < 0.5:
                 return self.R(x, p = P*p, train = train)[0]
 
     def __call__(self, x, p=1, train = False):
         return self.forward(x, p=p, train = False)
+
 
 
 class Leaf(nn.Module):
@@ -92,7 +93,7 @@ class Leaf(nn.Module):
     leaf_collection = []
 
     def __init__(self, args):
-        super(Leaf, self).__init__()
+        super().__init__()
         self.fc = nn.Linear(args.OUTPUTSZ, 1)
         self.Beta = torch.randn(1)
         self.args = args
@@ -115,12 +116,16 @@ class Leaf(nn.Module):
         #get parameters
         return super().parameters()
 
+    def link(self, l = 0):
+        pass
+
 class QSDT(nn.Module):
 
     def __init__(self, args: ARGS):
+        super(QSDT, self).__init__()
         self.args = args
         self.root = Inner(args)
-        self.root.inner_collection = [[] for _ in range(args.MAXDEPTH-1)]
+        self.root.link()
 
     def __call__(self, x, train = False):
         return self.root(x, p=1, train=train)
@@ -139,17 +144,30 @@ class QSDT(nn.Module):
             )
         )
 
-    @lru_cache(maxsize=25)                                      #only computes certain things once so computation is faster i.e. 2**-lmda
-    def _penalize(self):
-        tree = self.root.inner_collection           #reference to organized tree heirarchy
+    def fit(self, dset: DataLoader,opt: Optimizer, epochs: int):
+        for epoch in range(epochs):
+            epoch_loss = 0
+            for idx, (x, y) in enumerate(dset):
+                opt.zero_grad()
+                loss = self.Loss(x, y)
+                loss.backward()
+                opt.step()
+                epoch_loss += loss.item()
+            print(f"{epoch+1}/{epochs}:\tAVG Loss {epoch_loss/len(dset)}")
+
+
+    def penalize(self):
         with torch.no_grad():
-            s = torch.sum(recursive_extend([[node.penalty_log_computed*(2**-node.args.LEVEL) for node in tree[level]] for level in range(len(self.args.MAXDEPTH-2))]))
-                
+            #heap traversal to calculate tree layer penalties
+            return torch.sum(torch.Tensor(list(chain(*[
+                [2**(-n) * node.penalty_log_computed for node in self.root.inner_collection[2**n-1:2**(n+1)-1]] for n in range(self.args.MAXDEPTH-1)
+            ]))))
 
 
 
 
     
         
+
 
         
