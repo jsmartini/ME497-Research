@@ -1,5 +1,5 @@
 # ME497-Research
-Deep Q-Learning RL Cartpole Implementation for Soft Decision Trees 
+Deep Q-Learning RL Implementation for Soft Decision Trees 
 
 
 rl_solver -> generic solver for deep q learning
