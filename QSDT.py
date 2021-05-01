@@ -126,6 +126,7 @@ class QSDT(nn.Module):
         self.args = args
         self.root = Inner(args)
         self.root.link()
+        self.linear_params = [p.view(-1) for p in self.root.getParameters()]
 
     def __call__(self, x, train = False):
         return self.root(x, p=1, train=train)
@@ -149,7 +150,7 @@ class QSDT(nn.Module):
             epoch_loss = 0
             for idx, (x, y) in enumerate(dset):
                 opt.zero_grad()
-                loss = self.Loss(x, y)
+                loss = self.Loss(x, y) + self.penalize()
                 loss.backward()
                 opt.step()
                 epoch_loss += loss.item()
@@ -159,9 +160,10 @@ class QSDT(nn.Module):
     def penalize(self):
         with torch.no_grad():
             #heap traversal to calculate tree layer penalties
-            return torch.sum(torch.Tensor(list(chain(*[
+            C = torch.sum(torch.Tensor(list(chain(*[
                 [2**(-n) * node.penalty_log_computed for node in self.root.inner_collection[2**n-1:2**(n+1)-1]] for n in range(self.args.MAXDEPTH-1)
             ]))))
+            return C #+ torch.norm(self.linear_params, 1)
 
 
 
